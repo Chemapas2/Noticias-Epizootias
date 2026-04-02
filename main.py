@@ -3,83 +3,82 @@ import feedparser
 import urllib.request
 from datetime import datetime
 
-# 1. Configuración de la App
-st.set_page_config(page_title="Noticias Epizootias v2", layout="wide")
+# 1. Configuración
+st.set_page_config(page_title="Alertas Epizootias v2", layout="wide")
 
-# Muestra la hora de consulta para confirmar que la app está viva
-st.title("📱 Monitor de Epizootias")
-st.write(f"⏱️ Última actualización: **{datetime.now().strftime('%H:%M:%S')}**")
+st.title("🛰️ Monitor de Sanidad Animal")
+st.write(f"⏱️ Última consulta a fuentes: **{datetime.now().strftime('%H:%M:%S')}**")
 
-# 2. FUENTES SELECCIONADAS (Incluye Agrodigital, Excluye Animals Health)
+# 2. FUENTES (Sin Animals Health, con Agrodigital y Ministerio)
 FUENTES = [
     {"n": "MAPA (Ministerio España)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx"},
     {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/"},
-    {"n": "Eurocarne (Sector Cárnico)", "u": "https://www.eurocarne.com/rss"},
-    {"n": "3Tres3 (Sector Porcino)", "u": "https://www.3tres3.com/rss/noticias"},
+    {"n": "Eurocarne (Cárnico)", "u": "https://www.eurocarne.com/rss"},
+    {"n": "3Tres3 (Porcino)", "u": "https://www.3tres3.com/rss/noticias"},
     {"n": "Portal Veterinaria", "u": "https://www.portalveterinaria.com/rss/"},
     {"n": "EfeAgro", "u": "https://efeagro.com/feed/"}
 ]
 
-# Palabras clave de búsqueda (Ajustadas para Sanidad Animal)
-KEYWORDS = ["nodular", "dermatosis", "aviar", "iaap", "gripe", "peste", "ppa", "foco", "bovino", "cerdo", "vaca", "ave", "sanidad"]
+# 3. DICCIONARIO AMPLIADO (Para que no se escape nada)
+# He añadido sinónimos para asegurar que las columnas de PPA y DNC se llenen.
+PALABRAS_VACUNO = ["nodular", "dermatosis", "vaca", "vacuno", "bovino", "lengua azul", "ehp"]
+PALABRAS_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "h5n1"]
+PALABRAS_PORCINO = ["peste", "ppa", "asf", "cerdo", "porcino", "jabali", "lechon"]
 
 def cargar_datos_seguro(url):
-    """Función para evitar bloqueos de servidores oficiales"""
     try:
-        # Nos identificamos como un navegador estándar
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=12) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
             return feedparser.parse(response.read())
     except:
         return None
 
 def buscar_noticias():
-    todas = []
+    noticias = []
     for f in FUENTES:
         d = cargar_datos_seguro(f['u'])
         if d and d.entries:
             for e in d.entries:
-                titulo = e.get('title', '').lower()
-                # Filtrado por palabras clave
-                if any(k in titulo for k in KEYWORDS):
-                    # Clasificación por categoría
-                    cat = "🔍 OTRAS"
-                    if any(k in titulo for k in ["nodular", "dermatosis", "vaca", "bovino"]): cat = "🐄 VACUNO"
-                    elif any(k in titulo for k in ["aviar", "iaap", "gripe", "ave"]): cat = "🦆 AVES"
-                    elif any(k in titulo for k in ["peste", "ppa", "cerdo", "porcino"]): cat = "🐖 PORCINO"
-                    
-                    todas.append({
+                t = e.get('title', '').lower()
+                
+                # Clasificación Inteligente
+                cat = None
+                if any(k in t for k in PALABRAS_VACUNO): cat = "🐄 VACUNO (DNC/Otras)"
+                elif any(k in t for k in PALABRAS_AVES): cat = "🦆 AVES (IAAP)"
+                elif any(k in t for k in PALABRAS_PORCINO): cat = "🐖 PORCINO (PPA)"
+                
+                if cat:
+                    noticias.append({
                         "t": e.title,
                         "l": e.link,
                         "f": f['n'],
                         "c": cat
                     })
-    return todas
+    return noticias
 
-# --- INTERFAZ ---
-if st.button('🔄 REESCANEAR TODAS LAS FUENTES'):
+# --- BOTÓN DE ACTUALIZACIÓN ---
+if st.button('🔄 BUSCAR ÚLTIMAS ALERTAS EN TODO EL SECTOR'):
     st.cache_data.clear()
     st.rerun()
 
-noticias = buscar_noticias()
+todas = buscar_noticias()
 
 # Diseño en 3 columnas
-col1, col2, col3 = st.columns(3)
-secciones = [("🐄 VACUNO", col1), ("🦆 AVES", col2), ("🐖 PORCINO", col3)]
+c1, c2, c3 = st.columns(3)
+secciones = [("🐄 VACUNO (DNC/Otras)", c1), ("🦆 AVES (IAAP)", c2), ("🐖 PORCINO (PPA)", c3)]
 
 for nombre_cat, col in secciones:
     with col:
         st.header(nombre_cat)
-        filtradas = [n for n in noticias if n['c'] == nombre_cat]
+        filtradas = [n for n in todas if n['c'] == nombre_cat]
         if filtradas:
-            for n in filtradas:
-                # Caja de información visual
+            # Mostramos las 10 más recientes de cada categoría
+            for n in filtradas[:10]:
                 st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
-                # Botón de enlace directo
-                st.link_button("👉 LEER NOTICIA COMPLETA", n['l'])
+                st.link_button("👉 VER NOTICIA COMPLETA", n['l'])
                 st.divider()
         else:
-            st.write("Sin novedades recientes en esta categoría.")
+            st.write("No hay noticias recientes con estas palabras clave.")
 
-if not noticias:
-    st.warning("No se han encontrado noticias específicas hoy. Prueba a darle al botón de reescanear.")
+if not todas:
+    st.warning("No se han encontrado noticias hoy. Es posible que los medios no hayan publicado alertas en las últimas horas.")
