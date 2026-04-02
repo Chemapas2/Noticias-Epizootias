@@ -14,7 +14,7 @@ st.write(f"⏱️ Última comprobación en servidores: **{hora_actual}**")
 FUENTES = [
     {"n": "MAPA (Ministerio)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx"},
     {"n": "Animals Health", "u": "https://www.animalshealth.es/rss/"},
-    {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/"},
+    {"n": "Agrodigital", "u": "https://www.agrodigital.com/ganaderia/rss/"},
     {"n": "Eurocarne", "u": "https://www.eurocarne.com/rss"},
     {"n": "3Tres3 (Cerdo)", "u": "https://www.3tres3.com/rss/noticias"},
     {"n": "Portal Veterinaria", "u": "https://www.portalveterinaria.com/rss/"},
