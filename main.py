@@ -3,11 +3,14 @@ import feedparser
 import urllib.request
 from datetime import datetime
 
-st.set_page_config(page_title="Alertas Epizootias v3", layout="wide")
+# 1. Configuración de la App
+st.set_page_config(page_title="Monitor Epizootias v4", layout="wide")
 
-st.title("🛰️ Monitor de Sanidad Animal (Versión Ampliada)")
-st.write(f"⏱️ Consulta: **{datetime.now().strftime('%H:%M:%S')}**")
+# Título y hora de carga automática
+st.title("🛰️ Monitor de Sanidad Animal")
+st.write(f"✅ App actualizada automáticamente al abrir: **{datetime.now().strftime('%H:%M:%S')}**")
 
+# 2. FUENTES OFICIALES
 FUENTES = [
     {"n": "MAPA (Ministerio)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx"},
     {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/"},
@@ -18,11 +21,12 @@ FUENTES = [
     {"n": "Agropopular", "u": "https://www.agropopular.com/feed/"}
 ]
 
-# PALABRAS CLAVE MUCHO MÁS AMPLIAS
+# PALABRAS CLAVE AMPLIADAS (Filtro por sectores)
 PALABRAS_VACUNO = ["nodular", "dermatosis", "vaca", "vacuno", "bovino", "lengua azul", "ganado", "rumiante", "explotación"]
 PALABRAS_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "h5n1", "explotación avícola"]
 PALABRAS_PORCINO = ["peste", "ppa", "asf", "cerdo", "porcino", "jabali", "lechon", "cárnico", "matadero"]
 
+# Función para evitar bloqueos
 def cargar_datos_seguro(url):
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -31,13 +35,14 @@ def cargar_datos_seguro(url):
     except:
         return None
 
+# Eliminamos st.cache_data para que se refresque SOLA al entrar
 def buscar_noticias():
     noticias = []
     for f in FUENTES:
         d = cargar_datos_seguro(f['u'])
         if d and d.entries:
             for e in d.entries:
-                # Miramos en el título Y en el resumen (summary)
+                # Buscamos en título y resumen
                 texto_busqueda = (e.get('title', '') + " " + e.get('summary', '')).lower()
                 
                 cat = None
@@ -50,35 +55,38 @@ def buscar_noticias():
                         "t": e.title,
                         "l": e.link,
                         "f": f['n'],
-                        "c": cat,
-                        "d": e.get('published', '')
+                        "c": cat
                     })
     return noticias
 
-if st.button('🔄 REESCANEAR TODO EL SECTOR GANADERO'):
-    st.cache_data.clear()
+# --- EJECUCIÓN ---
+# El código se ejecuta cada vez que se carga la página
+noticias_actuales = buscar_noticias()
+
+# Botón manual por si acaso
+if st.button('🔄 REFORZAR BÚSQUEDA MANUAL'):
     st.rerun()
 
-todas = buscar_noticias()
-
+# Diseño en 3 columnas
 c1, c2, c3 = st.columns(3)
 secciones = [("🐄 VACUNO", c1), ("🦆 AVES", c2), ("🐖 PORCINO", c3)]
 
 for nombre_cat, col in secciones:
     with col:
         st.header(nombre_cat)
-        # Eliminamos duplicados por título
         titulos_vistos = set()
         filtradas = []
-        for n in todas:
+        for n in noticias_actuales:
             if n['c'] == nombre_cat and n['t'] not in titulos_vistos:
                 filtradas.append(n)
                 titulos_vistos.add(n['t'])
         
         if filtradas:
-            for n in filtradas[:15]: # Mostramos hasta 15 noticias
-                st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
-                st.link_button("👉 LEER NOTICIA", n['l'])
-                st.divider()
+            # Mostramos las 20 últimas de cada categoría (sin límite de fecha)
+            for n in filtradas[:20]:
+                with st.container():
+                    st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
+                    st.link_button("👉 LEER NOTICIA", n['l'])
+                    st.divider()
         else:
-            st.write("No hay menciones recientes en los boletines.")
+            st.warning("Buscando en histórico... Si no aparece nada, es que la fuente no tiene registros.")
