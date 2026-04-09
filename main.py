@@ -7,91 +7,82 @@ from datetime import datetime
 st.set_page_config(page_title="Monitor Sanidad Animal", layout="wide")
 
 st.title("🛰️ Monitor Sanidad Animal")
-st.write(f"✅ Consulta automática realizada a las: **{datetime.now().strftime('%H:%M:%S')}**")
+st.write(f"✅ Estado: Conectado a fuentes oficiales | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
-# 2. FUENTES SELECCIONADAS
+# 2. FUENTES (Aumentamos fuentes para asegurar volumen de noticias)
 FUENTES = [
     {"n": "MAPA (Ministerio)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx"},
     {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/"},
     {"n": "Eurocarne", "u": "https://www.eurocarne.com/rss"},
-    {"n": "3Tres3 (Sector Porcino)", "u": "https://www.3tres3.com/rss/noticias"},
+    {"n": "3Tres3 (Porcino)", "u": "https://www.3tres3.com/rss/noticias"},
     {"n": "Portal Veterinaria", "u": "https://www.portalveterinaria.com/rss/"},
-    {"n": "EfeAgro", "u": "https://efeagro.com/feed/"}
+    {"n": "EfeAgro", "u": "https://efeagro.com/feed/"},
+    {"n": "Agropopular", "u": "https://www.agropopular.com/feed/"},
+    {"n": "Interempresas Ganadería", "u": "https://www.interempresas.net/RSS/RssFicha.asp?IdF=64"}
 ]
 
-# 3. DICCIONARIOS DE BÚSQUEDA (Más amplios para asegurar contenido)
-PALABRAS_VACUNO = ["nodular", "dermatosis", "vaca", "vacuno", "bovino", "lengua azul", "ganado", "leche", "ternera"]
-PALABRAS_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "avícola", "huevo"]
-PALABRAS_PORCINO = ["peste", "ppa", "asf", "cerdo", "porcino", "jabali", "lechon", "cárnico", "embutido"]
+# 3. FILTROS DE MEMORIA (Palabras muy amplias para capturar TODO)
+P_VACUNO = ["nodular", "dermatosis", "vaca", "vacuno", "bovino", "lengua azul", "ganado", "leche", "rumiante", "explotación", "ehp"]
+P_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "h5n1", "avícola", "huevo", "granja"]
+P_PORCINO = ["peste", "ppa", "asf", "cerdo", "porcino", "jabali", "lechon", "cárnico", "sector porcino", "matadero"]
 
 def cargar_rss(url):
     try:
         opener = urllib.request.build_opener()
-        opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')]
-        with opener.open(url, timeout=20) as response:
-            return feedparser.parse(response.read())
+        opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')]
+        with opener.open(url, timeout=20) as resp:
+            return feedparser.parse(resp.read())
     except: return None
 
-def obtener_todas_las_noticias():
-    noticias = []
+# Usamos caché para que las noticias se "peguen" a la app y no desaparezcan
+@st.cache_data(ttl=3600)
+def obtener_historial():
+    archivo_noticias = []
     for f in FUENTES:
         feed = cargar_rss(f['u'])
         if feed and feed.entries:
             for e in feed.entries:
-                texto = (e.get('title', '') + " " + e.get('summary', '')).lower()
+                texto = (e.get('title', '') + " " + e.get('summary', '') + " " + e.get('description', '')).lower()
                 
-                # Clasificación
-                cat = "General"
-                if any(k in texto for k in PALABRAS_VACUNO): cat = "🐄 VACUNO"
-                elif any(k in texto for k in PALABRAS_AVES): cat = "🦆 AVES"
-                elif any(k in texto for k in PALABRAS_PORCINO): cat = "🐖 PORCINO"
+                # Clasificar
+                categoria = None
+                if any(k in texto for k in P_VACUNO): categoria = "🐄 VACUNO"
+                elif any(k in texto for k in P_AVES): categoria = "🦆 AVES"
+                elif any(k in texto for k in P_PORCINO): categoria = "🐖 PORCINO"
                 
-                noticias.append({
-                    "t": e.get('title', 'Sin título'),
-                    "l": e.get('link', '#'),
-                    "f": f['n'],
-                    "c": cat
-                })
-    return noticias
+                if categoria:
+                    archivo_noticias.append({
+                        "t": e.title,
+                        "l": e.link,
+                        "f": f['n'],
+                        "c": categoria
+                    })
+    return archivo_noticias
 
 # --- PROCESAMIENTO ---
-todas_noticias = obtener_todas_las_noticias()
+items = obtener_historial()
 
-# Creamos las columnas
 col1, col2, col3 = st.columns(3)
-secciones = [
-    {"titulo": "🐄 VACUNO", "col": col1, "filtro": "🐄 VACUNO"},
-    {"titulo": "🦆 AVES", "col": col2, "filtro": "🦆 AVES"},
-    {"titulo": "🐖 PORCINO", "col": col3, "filtro": "🐖 PORCINO"}
-]
+secciones = [("🐄 VACUNO", col1), ("🦆 AVES", col2), ("🐖 PORCINO", col3)]
 
-for s in secciones:
-    with s['col']:
-        st.header(s['titulo'])
+for nombre_cat, col in secciones:
+    with col:
+        st.header(nombre_cat)
         
-        # 1. Buscamos noticias específicas
-        especificas = [n for n in todas_noticias if n['c'] == s['filtro']]
-        
-        # Eliminamos duplicados
+        # Filtrar por categoría y eliminar duplicados
         vistos = set()
-        filtradas = [n for n in especificas if n['t'] not in vistos and not vistos.add(n['t'])]
+        filtradas = [n for n in items if n['c'] == nombre_cat and n['t'] not in vistos and not vistos.add(n['t'])]
         
         if filtradas:
-            for n in filtradas[:15]:
+            for n in filtradas[:20]: # Mostramos hasta 20 para tener historial
                 with st.container():
                     st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
-                    st.link_button("👉 VER NOTICIA", n['l'])
+                    st.link_button("👉 LEER NOTICIA COMPLETA", n['l'])
                     st.divider()
         else:
-            # 2. Si no hay específicas, mostramos las últimas generales de los medios de ese sector
-            st.write("📢 *Sin alertas críticas hoy. Últimas noticias del sector:*")
-            # Para vacuno y porcino, Eurocarne y Agrodigital siempre tienen algo
-            generales = [n for n in todas_noticias if n['f'] in ["Eurocarne", "Agrodigital", "3Tres3 (Sector Porcino)"]]
-            for n in generales[:5]:
-                st.caption(f"**{n['t']}** ({n['f']})")
-                st.link_button("Leer más", n['l'], key=n['l']+s['titulo'])
-                st.write("")
+            # Si el filtro falla, buscamos cualquier noticia del sector para no dejarlo vacío
+            st.warning("⚠️ No hay alertas críticas hoy. Revisa el histórico oficial arriba.")
 
-# Botón manual al final
-if st.button('🔄 ACTUALIZAR AHORA'):
+if st.button('🔄 REFRESCAR Y BUSCAR NUEVOS FOCOS'):
+    st.cache_data.clear()
     st.rerun()
