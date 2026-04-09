@@ -7,23 +7,21 @@ from datetime import datetime
 st.set_page_config(page_title="Monitor Sanidad Animal", layout="wide")
 
 st.title("🛰️ Monitor Sanidad Animal")
-st.write(f"✅ Fuentes Diversificadas | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+st.write(f"✅ Filtros optimizados | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
-# 2. FUENTES ORGANIZADAS POR RELEVANCIA
+# 2. FUENTES CON PRIORIDADES
 FUENTES = [
-    {"n": "Ministerio (MAPA)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx"},
-    {"n": "Eurocarne", "u": "https://www.eurocarne.com/rss"},
-    {"n": "3Tres3 (Porcino)", "u": "https://www.3tres3.com/rss/noticias"},
-    {"n": "Avicultura", "u": "https://www.avicultura.com/feed/"},
-    {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/"},
-    {"n": "Portal Veterinaria", "u": "https://www.portalveterinaria.com/rss/"},
-    {"n": "EfeAgro", "u": "https://efeagro.com/feed/"}
+    {"n": "3Tres3 (Especializado Porcino)", "u": "https://www.3tres3.com/rss/noticias", "sector": "🐖 PORCINO"},
+    {"n": "Eurocarne (Cárnico)", "u": "https://www.eurocarne.com/rss", "sector": "🐖 PORCINO"},
+    {"n": "Ministerio (MAPA)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx", "sector": "MIXTO"},
+    {"n": "Avicultura", "u": "https://www.avicultura.com/feed/", "sector": "🦆 AVES"},
+    {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/", "sector": "MIXTO"},
+    {"n": "EfeAgro", "u": "https://efeagro.com/feed/", "sector": "MIXTO"}
 ]
 
-# Palabras clave de clasificación
 P_VACUNO = ["vaca", "vacuno", "bovino", "nodular", "dermatosis", "lengua azul", "ganado", "leche"]
-P_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "huevo", "avicultura"]
-P_PORCINO = ["cerdo", "porcino", "peste", "ppa", "asf", "lechon", "ibérico", "cárnico"]
+P_AVES = ["aviar", "gripe", "ave", "pollo", "gallina", "huevo", "iaap"]
+P_PORCINO = ["cerdo", "porcino", "peste", "ppa", "asf", "lechon", "ibérico", "cárnico", "matadero", "porcina"]
 
 def cargar_rss(url):
     try:
@@ -32,44 +30,48 @@ def cargar_rss(url):
             return feedparser.parse(resp.read())
     except: return None
 
-def obtener_noticias_mezcladas():
-    # Diccionario para agrupar noticias por FUENTE y luego por CATEGORÍA
-    # Estructura: pool[Categoría][Fuente] = [Lista de noticias]
-    pool = {
-        "🐄 VACUNO": {f['n']: [] for f in FUENTES},
-        "🦆 AVES": {f['n']: [] for f in FUENTES},
-        "🐖 PORCINO": {f['n']: [] for f in FUENTES}
-    }
-    
+def obtener_noticias_garantizadas():
+    # Estructura para almacenar por categoría
+    almacen = {"🐄 VACUNO": [], "🦆 AVES": [], "🐖 PORCINO": []}
+    vistos = set()
+
     for f in FUENTES:
         feed = cargar_rss(f['u'])
         if feed and feed.entries:
             for e in feed.entries:
                 titulo = e.get('title', '')
+                if titulo in vistos: continue
+                
                 resumen = (e.get('summary', '') + " " + e.get('description', '')).lower()
                 texto = (titulo + " " + resumen).lower()
-                
-                cat = None
-                if any(k in texto for k in P_PORCINO) or "3tres3" in f['u']: cat = "🐖 PORCINO"
-                elif any(k in texto for k in P_VACUNO): cat = "🐄 VACUNO"
-                elif any(k in texto for k in P_AVES) or "avicultura" in f['u']: cat = "🦆 AVES"
-                
-                if cat:
-                    pool[cat][f['n']].append({"t": titulo, "l": e.get('link', '#'), "f": f['n']})
-    
-    # Ahora mezclamos: cogemos la 1ª de cada fuente, luego la 2ª...
-    resultado_final = {"🐄 VACUNO": [], "🦆 AVES": [], "🐖 PORCINO": []}
-    
-    for cat in resultado_final.keys():
-        for i in range(10): # Intentamos sacar hasta 10 niveles de profundidad
-            for f in FUENTES:
-                if len(pool[cat][f['n']]) > i:
-                    resultado_final[cat].append(pool[cat][f['n']][i])
-                    
-    return resultado_final
+                link = e.get('link', '#')
+                item = {"t": titulo, "l": link, "f": f['n']}
 
-# --- MOSTRAR INTERFAZ ---
-dict_noticias = obtener_noticias_mezcladas()
+                # CLASIFICACIÓN AGRESIVA
+                # Porcino: si la fuente es especializada o tiene keywords
+                if f['sector'] == "🐖 PORCINO" or any(k in texto for k in P_PORCINO):
+                    almacen["🐖 PORCINO"].append(item)
+                    vistos.add(titulo)
+                # Aves: si la fuente es especializada o tiene keywords
+                elif f['sector'] == "🦆 AVES" or any(k in texto for k in P_AVES):
+                    almacen["🦆 AVES"].append(item)
+                    vistos.add(titulo)
+                # Vacuno
+                elif any(k in texto for k in P_VACUNO):
+                    almacen["🐄 VACUNO"].append(item)
+                    vistos.add(titulo)
+                # Si no encaja en ninguna pero es del Ministerio o Agrodigital, guardamos para relleno
+                elif f['sector'] == "MIXTO":
+                    # Lo guardamos temporalmente por si alguna columna queda con menos de 5
+                    if len(almacen["🐄 VACUNO"]) < 5: almacen["🐄 VACUNO"].append(item)
+                    elif len(almacen["🦆 AVES"]) < 5: almacen["🦆 AVES"].append(item)
+                    elif len(almacen["🐖 PORCINO"]) < 5: almacen["🐖 PORCINO"].append(item)
+                    vistos.add(titulo)
+
+    return almacen
+
+# --- INTERFAZ ---
+dict_noticias = obtener_noticias_garantizadas()
 col1, col2, col3 = st.columns(3)
 
 secciones = [
@@ -83,15 +85,12 @@ for nombre_cat, columna in secciones:
         st.header(nombre_cat)
         lista = dict_noticias[nombre_cat]
         
-        if lista:
-            # Mostramos las 8 primeras (que estarán mezcladas de distintas fuentes)
-            for n in lista[:8]:
-                with st.container():
-                    st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
-                    st.link_button("👉 LEER NOTICIA", n['l'], key=n['l']+nombre_cat)
-                    st.divider()
-        else:
-            st.write("No hay noticias recientes.")
+        # Mostramos mínimo 5, máximo 10
+        for n in lista[:10]:
+            with st.container():
+                st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
+                st.link_button("👉 LEER NOTICIA", n['l'], key=n['l']+nombre_cat)
+                st.divider()
 
-if st.button('🔄 ACTUALIZAR FUENTES'):
+if st.button('🔄 ACTUALIZAR MONITOR'):
     st.rerun()
