@@ -3,25 +3,31 @@ import feedparser
 import urllib.request
 from datetime import datetime
 
+# 1. Configuración de la App
 st.set_page_config(page_title="Monitor Sanidad Animal", layout="wide")
 
 st.title("🛰️ Monitor Sanidad Animal")
-st.write(f"✅ Conectado | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+st.write(f"✅ Última actualización: **{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}**")
 
-# FUENTES (Re-ordenadas por eficacia en Porcino)
-FUENTES = [
-    {"n": "3Tres3 (Líder Porcino)", "u": "https://www.3tres3.com/rss/noticias"},
-    {"n": "Eurocarne (Cárnico)", "u": "https://www.eurocarne.com/rss"},
-    {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/"},
-    {"n": "MAPA (Ministerio)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx"},
-    {"n": "Portal Veterinaria", "u": "https://www.portalveterinaria.com/rss/"},
-    {"n": "EfeAgro", "u": "https://efeagro.com/feed/"}
+# 2. DEFINICIÓN DE FUENTES POR SECTOR
+# Esto garantiza que siempre haya contenido
+FUENTES_PORCINO = [
+    "https://www.3tres3.com/rss/noticias",
+    "https://www.eurocarne.com/rss",
+    "https://www.portalveterinaria.com/rss/"
 ]
 
-# PALABRAS CLAVE (Aumentadas para capturar TODO el sector)
-P_VACUNO = ["nodular", "dermatosis", "vaca", "vacuno", "bovino", "lengua azul", "ganado", "ehp"]
-P_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "h5n1"]
-P_PORCINO = ["peste", "ppa", "asf", "cerdo", "porcino", "jabali", "lechon", "cárnico", "ibérico", "matadero", "porcina"]
+FUENTES_VACUNO = [
+    "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx",
+    "https://www.agrodigital.com/feed/",
+    "https://efeagro.com/feed/"
+]
+
+FUENTES_AVES = [
+    "https://www.avicultura.com/feed/",
+    "https://www.agropopular.com/feed/",
+    "https://www.interempresas.net/RSS/RssFicha.asp?IdF=64"
+]
 
 def cargar_rss(url):
     try:
@@ -30,52 +36,53 @@ def cargar_rss(url):
             return feedparser.parse(resp.read())
     except: return None
 
-def obtener_noticias():
-    noticias = []
-    for f in FUENTES:
-        feed = cargar_rss(f['u'])
+def mostrar_columna(titulo, urls, palabras_clave):
+    st.header(titulo)
+    noticias_encontradas = []
+    
+    for url in urls:
+        feed = cargar_rss(url)
         if feed and feed.entries:
             for e in feed.entries:
-                # Buscamos en todo el texto disponible
-                titulo = e.get('title', '')
-                resumen = e.get('summary', e.get('description', ''))
-                link = e.get('link', '')
-                todo_texto = (titulo + " " + resumen + " " + link).lower()
+                titulo_noticia = e.get('title', '')
+                resumen = e.get('summary', e.get('description', '')).lower()
                 
-                cat = None
-                # Si la URL contiene 'porcino' o 'cerdo', va directo a esa categoría
-                if "porcino" in todo_texto or "cerdo" in todo_texto or any(k in todo_texto for k in P_PORCINO):
-                    cat = "🐖 PORCINO"
-                elif any(k in todo_texto for k in P_VACUNO):
-                    cat = "🐄 VACUNO"
-                elif any(k in todo_texto for k in P_AVES):
-                    cat = "🦆 AVES"
-                
-                if cat:
-                    noticias.append({"t": titulo, "l": link, "f": f['n'], "c": cat})
-    return noticias
-
-# --- MOSTRAR ---
-items = obtener_noticias()
-
-col1, col2, col3 = st.columns(3)
-secciones = [("🐄 VACUNO", col1), ("🦆 AVES", col2), ("🐖 PORCINO", col3)]
-
-for nombre_cat, col in secciones:
-    with col:
-        st.header(nombre_cat)
+                # REGLA DE ORO: Si es una web especializada (como 3tres3), entra directo.
+                # Si es general, buscamos palabras clave.
+                if any(site in url for site in ["3tres3", "avicultura", "eurocarne"]) or \
+                   any(k in (titulo_noticia + resumen).lower() for k in palabras_clave):
+                    
+                    noticias_encontradas.append({
+                        "t": titulo_noticia,
+                        "l": e.get('link', '#'),
+                        "f": url.split('/')[2] # Nombre corto de la web
+                    })
+    
+    # Mostrar resultados
+    if noticias_encontradas:
+        # Quitamos duplicados
         vistos = set()
-        # Filtramos y quitamos repetidos
-        filtradas = [n for n in items if n['c'] == nombre_cat and n['t'] not in vistos and not vistos.add(n['t'])]
+        unicas = [n for n in noticias_encontradas if n['t'] not in vistos and not vistos.add(n['t'])]
         
-        if filtradas:
-            for n in filtradas[:15]:
-                with st.container():
-                    st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
-                    st.link_button("👉 LEER NOTICIA", n['l'])
-                    st.divider()
-        else:
-            st.warning(f"No hay noticias recientes de {nombre_cat.lower()} en los boletines.")
+        for n in unicas[:12]: # Mostramos las 12 últimas
+            with st.container():
+                st.info(f"**{n['t']}**")
+                st.link_button("👉 LEER NOTICIA", n['l'])
+                st.divider()
+    else:
+        st.write("☕ No se han detectado alertas hoy.")
 
-if st.button('🔄 REFRESCAR NOTICIAS'):
+# --- CUERPO DE LA APP ---
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    mostrar_columna("🐄 VACUNO", FUENTES_VACUNO, ["vaca", "vacuno", "bovino", "nodular", "dermatosis", "lengua azul", "ganado"])
+
+with col2:
+    mostrar_columna("🦆 AVES", FUENTES_AVES, ["aviar", "gripe", "ave", "pollo", "gallina", "huevo", "iaap"])
+
+with col3:
+    mostrar_columna("🐖 PORCINO", FUENTES_PORCINO, ["cerdo", "porcino", "peste", "ppa", "jamon", "embutido", "matadero", "lechon"])
+
+if st.button('🔄 ACTUALIZAR AHORA'):
     st.rerun()
