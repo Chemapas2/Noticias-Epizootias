@@ -7,22 +7,23 @@ from datetime import datetime
 st.set_page_config(page_title="Monitor Sanidad Animal", layout="wide")
 
 st.title("🛰️ Monitor Sanidad Animal")
-st.write(f"✅ Sistema Activo | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+st.write(f"✅ Fuentes Diversificadas | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
-# 2. FUENTES ORGANIZADAS
+# 2. FUENTES ORGANIZADAS POR RELEVANCIA
 FUENTES = [
-    {"n": "3Tres3 (Cerdos)", "u": "https://www.3tres3.com/rss/noticias", "cat": "🐖 PORCINO"},
-    {"n": "Avicultura", "u": "https://www.avicultura.com/feed/", "cat": "🦆 AVES"},
-    {"n": "Eurocarne", "u": "https://www.eurocarne.com/rss", "cat": "MIXTO"},
-    {"n": "MAPA (Ministerio)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx", "cat": "MIXTO"},
-    {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/", "cat": "MIXTO"},
-    {"n": "EfeAgro", "u": "https://efeagro.com/feed/", "cat": "MIXTO"}
+    {"n": "Ministerio (MAPA)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx"},
+    {"n": "Eurocarne", "u": "https://www.eurocarne.com/rss"},
+    {"n": "3Tres3 (Porcino)", "u": "https://www.3tres3.com/rss/noticias"},
+    {"n": "Avicultura", "u": "https://www.avicultura.com/feed/"},
+    {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/"},
+    {"n": "Portal Veterinaria", "u": "https://www.portalveterinaria.com/rss/"},
+    {"n": "EfeAgro", "u": "https://efeagro.com/feed/"}
 ]
 
-# Palabras clave para identificación
-P_VACUNO = ["vaca", "vacuno", "bovino", "nodular", "dermatosis", "lengua azul", "leche", "ternera"]
-P_AVES = ["aviar", "gripe", "ave", "pollo", "gallina", "huevo", "iaap", "avicultura"]
-P_PORCINO = ["cerdo", "porcino", "peste", "ppa", "jamon", "lechon", "matadero", "porcina"]
+# Palabras clave de clasificación
+P_VACUNO = ["vaca", "vacuno", "bovino", "nodular", "dermatosis", "lengua azul", "ganado", "leche"]
+P_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "huevo", "avicultura"]
+P_PORCINO = ["cerdo", "porcino", "peste", "ppa", "asf", "lechon", "ibérico", "cárnico"]
 
 def cargar_rss(url):
     try:
@@ -31,63 +32,46 @@ def cargar_rss(url):
             return feedparser.parse(resp.read())
     except: return None
 
-def obtener_noticias():
-    todas = []
+def obtener_noticias_mezcladas():
+    # Diccionario para agrupar noticias por FUENTE y luego por CATEGORÍA
+    # Estructura: pool[Categoría][Fuente] = [Lista de noticias]
+    pool = {
+        "🐄 VACUNO": {f['n']: [] for f in FUENTES},
+        "🦆 AVES": {f['n']: [] for f in FUENTES},
+        "🐖 PORCINO": {f['n']: [] for f in FUENTES}
+    }
+    
     for f in FUENTES:
         feed = cargar_rss(f['u'])
         if feed and feed.entries:
             for e in feed.entries:
                 titulo = e.get('title', '')
-                resumen = e.get('summary', e.get('description', '')).lower()
-                link = e.get('link', '#')
-                texto_total = (titulo + " " + resumen).lower()
+                resumen = (e.get('summary', '') + " " + e.get('description', '')).lower()
+                texto = (titulo + " " + resumen).lower()
                 
-                # Clasificar por contenido
-                cat_detectada = None
-                if any(k in texto_total for k in P_PORCINO) or f['cat'] == "🐖 PORCINO": cat_detectada = "🐖 PORCINO"
-                elif any(k in texto_total for k in P_VACUNO): cat_detectada = "🐄 VACUNO"
-                elif any(k in texto_total for k in P_AVES) or f['cat'] == "🦆 AVES": cat_detectada = "🦆 AVES"
+                cat = None
+                if any(k in texto for k in P_PORCINO) or "3tres3" in f['u']: cat = "🐖 PORCINO"
+                elif any(k in texto for k in P_VACUNO): cat = "🐄 VACUNO"
+                elif any(k in texto for k in P_AVES) or "avicultura" in f['u']: cat = "🦆 AVES"
                 
-                if cat_detectada:
-                    todas.append({"t": titulo, "l": link, "f": f['n'], "c": cat_detectada})
-                elif f['cat'] == "MIXTO":
-                    # Guardar como general por si falta relleno
-                    todas.append({"t": titulo, "l": link, "f": f['n'], "c": "GENERAL"})
-    return todas
+                if cat:
+                    pool[cat][f['n']].append({"t": titulo, "l": e.get('link', '#'), "f": f['n']})
+    
+    # Ahora mezclamos: cogemos la 1ª de cada fuente, luego la 2ª...
+    resultado_final = {"🐄 VACUNO": [], "🦆 AVES": [], "🐖 PORCINO": []}
+    
+    for cat in resultado_final.keys():
+        for i in range(10): # Intentamos sacar hasta 10 niveles de profundidad
+            for f in FUENTES:
+                if len(pool[cat][f['n']]) > i:
+                    resultado_final[cat].append(pool[cat][f['n']][i])
+                    
+    return resultado_final
 
-# --- LÓGICA DE MOSTRAR ---
-noticias = obtener_noticias()
+# --- MOSTRAR INTERFAZ ---
+dict_noticias = obtener_noticias_mezcladas()
 col1, col2, col3 = st.columns(3)
 
 secciones = [
-    ("🐄 VACUNO", col1, P_VACUNO),
-    ("🦆 AVES", col2, P_AVES),
-    ("🐖 PORCINO", col3, P_PORCINO)
-]
-
-for nombre_cat, columna, keywords in secciones:
-    with columna:
-        st.header(nombre_cat)
-        
-        # 1. Noticias específicas del sector
-        especificas = []
-        vistos = set()
-        for n in noticias:
-            if n['c'] == nombre_cat and n['t'] not in vistos:
-                especificas.append(n)
-                vistos.add(n['t'])
-        
-        # 2. Si no hay 5, rellenamos con noticias generales de fuentes de confianza
-        if len(especificas) < 5:
-            generales = [n for n in noticias if n['c'] == "GENERAL" and n['t'] not in vistos]
-            especificas.extend(generales[:(5 - len(especificas))])
-        
-        # Mostrar resultados (mínimo 5 si existen en el sistema)
-        for n in especificas[:8]:
-            with st.container():
-                st.info(f"**{n['t']}**\n\n📍 {n['f']}")
-                st.link_button("👉 LEER NOTICIA", n['l'])
-                st.divider()
-
-if st.button('🔄 ACTUALIZAR AHORA'):
-    st.rerun()
+    ("🐄 VACUNO", col1),
+    ("🦆 AVES", col2),
