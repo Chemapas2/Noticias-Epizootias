@@ -6,47 +6,48 @@ from datetime import datetime
 # 1. Configuración de la App
 st.set_page_config(page_title="Monitor Sanidad Animal", layout="wide")
 
-# Título y actualización automática
-st.title("🛰️ Monitor Sanidad Animal y Ganadería")
-st.write(f"✅ Datos actualizados: **{datetime.now().strftime('%H:%M:%S')}**")
+st.title("🛰️ Monitor Sanidad Animal (PPA / DNC / IAAP)")
+st.write(f"✅ Última conexión oficial: **{datetime.now().strftime('%H:%M:%S')}**")
 
-# 2. FUENTES OFICIALES Y DE SECTOR
+# 2. FUENTES (Re-verificadas)
 FUENTES = [
     {"n": "MAPA (Ministerio)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx"},
     {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/"},
     {"n": "Eurocarne", "u": "https://www.eurocarne.com/rss"},
-    {"n": "3Tres3 (Porcino)", "u": "https://www.3tres3.com/rss/noticias"},
+    {"n": "3Tres3 (Cerdo)", "u": "https://www.3tres3.com/rss/noticias"},
     {"n": "Portal Veterinaria", "u": "https://www.portalveterinaria.com/rss/"},
-    {"n": "EfeAgro", "u": "https://efeagro.com/feed/"},
-    {"n": "Agropopular", "u": "https://www.agropopular.com/feed/"}
+    {"n": "EfeAgro", "u": "https://efeagro.com/feed/"}
 ]
 
-# 3. DICCIONARIO RADAR (Ampliado para que siempre haya contenido)
-PALABRAS_VACUNO = ["nodular", "dermatosis", "vaca", "vacuno", "bovino", "lengua azul", "ganado", "rumiante", "ternera", "leche"]
-PALABRAS_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "h5n1", "avícola", "huevo"]
-PALABRAS_PORCINO = ["peste", "ppa", "asf", "cerdo", "porcino", "jabali", "lechon", "cárnico", "embutido", "jamon"]
+# 3. FILTROS AGRESIVOS
+# He añadido términos que usan las agencias de noticias para que no falle
+PALABRAS_VACUNO = ["nodular", "dermatosis", "vaca", "vacuno", "bovino", "lengua azul", "ganado", "rumiante", "epizootia"]
+PALABRAS_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "h5n1", "avícola"]
+PALABRAS_PORCINO = ["peste", "ppa", "asf", "cerdo", "porcino", "jabali", "lechon", "africana", "foco"]
 
-def cargar_datos_seguro(url):
+def cargar_rss(url):
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=15) as response:
+        # Simulamos un navegador muy común para evitar bloqueos del Ministerio
+        opener = urllib.request.build_opener()
+        opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')]
+        with opener.open(url, timeout=20) as response:
             return feedparser.parse(response.read())
     except:
         return None
 
-def buscar_noticias():
+def obtener_alertas():
     noticias = []
     for f in FUENTES:
-        d = cargar_datos_seguro(f['u'])
-        if d and d.entries:
-            for e in d.entries:
-                # Buscamos en título y resumen
-                texto = (e.get('title', '') + " " + e.get('summary', '')).lower()
+        feed = cargar_rss(f['u'])
+        if feed and feed.entries:
+            for e in feed.entries:
+                # Unimos título y descripción para buscar mejor
+                contenido = (e.get('title', '') + " " + e.get('description', '') + " " + e.get('summary', '')).lower()
                 
                 cat = None
-                if any(k in texto for k in PALABRAS_VACUNO): cat = "🐄 VACUNO"
-                elif any(k in texto for k in PALABRAS_AVES): cat = "🦆 AVES"
-                elif any(k in texto for k in PALABRAS_PORCINO): cat = "🐖 PORCINO"
+                if any(k in contenido for k in PALABRAS_VACUNO): cat = "🐄 VACUNO"
+                elif any(k in contenido for k in PALABRAS_AVES): cat = "🦆 AVES"
+                elif any(k in contenido for k in PALABRAS_PORCINO): cat = "🐖 PORCINO"
                 
                 if cat:
                     noticias.append({
@@ -57,29 +58,28 @@ def buscar_noticias():
                     })
     return noticias
 
-# --- EJECUCIÓN AUTOMÁTICA ---
-items = buscar_noticias()
+# --- MOSTRAR DATOS ---
+items = obtener_alertas()
 
-# Botón por si el usuario quiere refrescar a mano
-if st.button('🔄 RECARGAR AHORA'):
+# Botón de refresco manual
+if st.button('🔄 REFRESCAR NOTICIAS AHORA'):
     st.rerun()
 
-# Diseño en 3 columnas
-c1, c2, c3 = st.columns(3)
-secciones = [("🐄 VACUNO", c1), ("🦆 AVES", c2), ("🐖 PORCINO", c3)]
+col1, col2, col3 = st.columns(3)
+secciones = [("🐄 VACUNO", col1), ("🦆 AVES", col2), ("🐖 PORCINO", col3)]
 
-for nombre_cat, col in secciones:
-    with col:
+for nombre_cat, columna in secciones:
+    with columna:
         st.header(nombre_cat)
-        vistos = set()
-        filtradas = [n for n in items if n['c'] == nombre_cat and n['t'] not in vistos and not vistos.add(n['t'])]
+        # Filtro único para no repetir noticias de distintas fuentes
+        titulos_vistos = set()
+        filtradas = [n for n in items if n['c'] == nombre_cat and n['t'] not in titulos_vistos and not titulos_vistos.add(n['t'])]
         
         if filtradas:
             for n in filtradas[:15]:
                 with st.container():
-                    st.info(f"**{n['t']}**\n\n📍 {n['f']}")
-                    st.link_button("👉 ABRIR NOTICIA", n['l'])
+                    st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
+                    st.link_button("👉 LEER NOTICIA", n['l'])
                     st.divider()
         else:
-            # En lugar de "Buscando...", ponemos un mensaje limpio
-            st.write("☕ No hay noticias urgentes hoy en esta sección.")
+            st.write("No se han encontrado alertas críticas hoy.")
