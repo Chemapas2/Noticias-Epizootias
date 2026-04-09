@@ -75,3 +75,23 @@ col1, col2, col3 = st.columns(3)
 secciones = [
     ("🐄 VACUNO", col1),
     ("🦆 AVES", col2),
+    ("🐖 PORCINO", col3)
+]
+
+for nombre_cat, columna in secciones:
+    with columna:
+        st.header(nombre_cat)
+        lista = dict_noticias[nombre_cat]
+        
+        if lista:
+            # Mostramos las 8 primeras (que estarán mezcladas de distintas fuentes)
+            for n in lista[:8]:
+                with st.container():
+                    st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
+                    st.link_button("👉 LEER NOTICIA", n['l'], key=n['l']+nombre_cat)
+                    st.divider()
+        else:
+            st.write("No hay noticias recientes.")
+
+if st.button('🔄 ACTUALIZAR FUENTES'):
+    st.rerun()
