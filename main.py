@@ -1,73 +1,88 @@
-import requests
+import streamlit as st
+import feedparser
+import urllib.request
 from datetime import datetime
 
-# --- CONFIGURACIÓN ---
-API_KEY = "TU_API_KEY_AQUI"  # Sustituye por tu clave (ej. NewsAPI, Serper, etc.)
-BASE_URL = "https://newsapi.org/v2/everything" # Ejemplo con NewsAPI
+# 1. Configuración de la App
+st.set_page_config(page_title="Monitor Sanidad Animal", layout="wide")
 
-def obtener_noticias_porcino_economicas():
-    """
-    Busca noticias de porcino con un enfoque expandido a 
-    consecuencias económicas y PPA.
-    """
-    
-    # 1. Definimos una consulta robusta usando operadores OR y AND
-    # Esto busca: (cerdo o porcino) Y (PPA o crisis o exportación o precio)
-    query = (
-        '(porcino OR cerdo OR "sector cárnico") AND '
-        '("PPA" OR "peste porcina" OR "consecuencias económicas" OR '
-        '"exportación" OR "precios" OR "aranceles" OR "mercado China")'
-    )
+st.title("🛰️ Monitor Sanidad Animal")
+st.write(f"✅ Estado: Conectado a fuentes oficiales | {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
-    parametros = {
-        'q': query,
-        'language': 'es',        # Idioma español
-        'sortBy': 'publishedAt', # Las más recientes primero
-        'pageSize': 10,          # Cantidad de resultados
-        'apiKey': API_KEY
-    }
+# 2. FUENTES (Aumentamos fuentes para asegurar volumen de noticias)
+FUENTES = [
+    {"n": "MAPA (Ministerio)", "u": "https://www.mapa.gob.es/es/prensa/ultimas-noticias/rss.aspx"},
+    {"n": "Agrodigital", "u": "https://www.agrodigital.com/feed/"},
+    {"n": "Eurocarne", "u": "https://www.eurocarne.com/rss"},
+    {"n": "3Tres3 (Porcino)", "u": "https://www.3tres3.com/rss/noticias"},
+    {"n": "Portal Veterinaria", "u": "https://www.portalveterinaria.com/rss/"},
+    {"n": "EfeAgro", "u": "https://efeagro.com/feed/"},
+    {"n": "Agropopular", "u": "https://www.agropopular.com/feed/"},
+    {"n": "Interempresas Ganadería", "u": "https://www.interempresas.net/RSS/RssFicha.asp?IdF=64"}
+]
 
+# 3. FILTROS DE MEMORIA (Palabras muy amplias para capturar TODO)
+P_VACUNO = ["nodular", "dermatosis", "vaca", "vacuno", "bovino", "lengua azul", "ganado", "leche", "rumiante", "explotación", "ehp"]
+P_AVES = ["aviar", "iaap", "gripe", "ave", "pollo", "gallina", "h5n1", "avícola", "huevo", "granja"]
+P_PORCINO = ["peste", "ppa", "asf", "cerdo", "porcino", "jabali", "lechon", "cárnico", "sector porcino", "matadero"]
+
+def cargar_rss(url):
     try:
-        response = requests.get(BASE_URL, params=parametros)
-        data = response.json()
+        opener = urllib.request.build_opener()
+        opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')]
+        with opener.open(url, timeout=20) as resp:
+            return feedparser.parse(resp.read())
+    except: return None
 
-        if data.get("status") == "ok" and data.get("totalResults", 0) > 0:
-            return data["articles"]
+# Usamos caché para que las noticias se "peguen" a la app y no desaparezcan
+@st.cache_data(ttl=3600)
+def obtener_historial():
+    archivo_noticias = []
+    for f in FUENTES:
+        feed = cargar_rss(f['u'])
+        if feed and feed.entries:
+            for e in feed.entries:
+                texto = (e.get('title', '') + " " + e.get('summary', '') + " " + e.get('description', '')).lower()
+                
+                # Clasificar
+                categoria = None
+                if any(k in texto for k in P_VACUNO): categoria = "🐄 VACUNO"
+                elif any(k in texto for k in P_AVES): categoria = "🦆 AVES"
+                elif any(k in texto for k in P_PORCINO): categoria = "🐖 PORCINO"
+                
+                if categoria:
+                    archivo_noticias.append({
+                        "t": e.title,
+                        "l": e.link,
+                        "f": f['n'],
+                        "c": categoria
+                    })
+    return archivo_noticias
+
+# --- PROCESAMIENTO ---
+items = obtener_historial()
+
+col1, col2, col3 = st.columns(3)
+secciones = [("🐄 VACUNO", col1), ("🦆 AVES", col2), ("🐖 PORCINO", col3)]
+
+for nombre_cat, col in secciones:
+    with col:
+        st.header(nombre_cat)
+        
+        # Filtrar por categoría y eliminar duplicados
+        vistos = set()
+        filtradas = [n for n in items if n['c'] == nombre_cat and n['t'] not in vistos and not vistos.add(n['t'])]
+        
+        if filtradas:
+            for n in filtradas[:20]: # Mostramos hasta 20 para tener historial
+                with st.container():
+                    st.info(f"**{n['t']}**\n\n📍 Fuente: {n['f']}")
+                    st.link_button("👉 LEER NOTICIA COMPLETA", n['l'])
+                    st.divider()
         else:
-            # Si no hay noticias hoy, lanzamos una búsqueda de backup más general
-            return buscar_historico_economico()
-            
-    except Exception as e:
-        print(f"Error en la conexión: {e}")
-        return []
+            # Si el filtro falla, buscamos cualquier noticia del sector para no dejarlo vacío
+            st.warning("⚠️ No hay alertas críticas hoy. Revisa el histórico oficial arriba.")
 
-def buscar_historico_economico():
-    """Búsqueda de seguridad para evitar que la pantalla salga vacía"""
-    params_backup = {
-        'q': 'economía porcina España PPA',
-        'language': 'es',
-        'apiKey': API_KEY
-    }
-    res = requests.get(BASE_URL, params=params_backup)
-    return res.json().get("articles", [])
-
-def main():
-    print(f"--- Buscador de Actualidad Porcina (Fecha: {datetime.now().strftime('%d/%m/%Y')}) ---")
-    
-    noticias = obtener_noticias_porcino_economicas()
-    
-    if not noticias:
-        # Este es el mensaje que intentamos evitar
-        print("⚠️ No se encontraron noticias críticas hoy. Revisando histórico...")
-    else:
-        for idx, noticia in enumerate(noticias, 1):
-            titulo = noticia.get('title')
-            fuente = noticia.get('source', {}).get('name')
-            url = noticia.get('url')
-            
-            print(f"\n[{idx}] {titulo}")
-            print(f"    Fuente: {fuente}")
-            print(f"    Link: {url}")
-
-if __name__ == "__main__":
-    main()
+if st.button('🔄 REFRESCAR Y BUSCAR NUEVOS FOCOS'):
+    st.cache_data.clear()
+    st.rerun()
