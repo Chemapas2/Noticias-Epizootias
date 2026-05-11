@@ -20,7 +20,9 @@ import streamlit as st
 APP_TITLE = "Noticias Epizootias"
 AUTO_REFRESH = "5m"
 MAX_NEWS_PER_DISEASE = 5
-DAYS_BACK = 7
+DEFAULT_DAYS_BACK = 7
+MIN_DAYS_BACK = 1
+MAX_DAYS_BACK = 60
 TIMEOUT_SECONDS = 20
 
 # Archivos de imagen esperados en la misma carpeta que main.py
@@ -54,9 +56,9 @@ REGION_TERMS = [
 DISEASES = {
     "DNC - Dermatitis Nodular Contagiosa": {
         "queries": [
-            '"dermatitis nodular contagiosa" (vacuno OR bovino) (España OR Portugal OR Europa OR UE OR "Unión Europea") when:7d',
-            '"lumpy skin disease" (vacuno OR bovino) (España OR Portugal OR Europa OR UE OR "Unión Europea") when:7d',
-            'DNC vacuno (España OR Portugal OR Europa OR UE) when:7d',
+            '"dermatitis nodular contagiosa" (vacuno OR bovino) (España OR Portugal OR Europa OR UE OR "Unión Europea")',
+            '"lumpy skin disease" (vacuno OR bovino) (España OR Portugal OR Europa OR UE OR "Unión Europea")',
+            'DNC vacuno (España OR Portugal OR Europa OR UE)',
         ],
         "match_terms": [
             "dermatitis nodular contagiosa",
@@ -67,9 +69,9 @@ DISEASES = {
     },
     "IAAP - Influenza Aviar": {
         "queries": [
-            '("influenza aviar" OR "gripe aviar" OR IAAP OR HPAI) (aves OR aviar OR poultry) (España OR Portugal OR Europa OR UE OR "Unión Europea") when:7d',
-            '"influenza aviar altamente patógena" (España OR Portugal OR Europa OR UE) when:7d',
-            '"gripe aviar" (España OR Portugal OR Europa OR UE) when:7d',
+            '("influenza aviar" OR "gripe aviar" OR IAAP OR HPAI) (aves OR aviar OR poultry) (España OR Portugal OR Europa OR UE OR "Unión Europea")',
+            '"influenza aviar altamente patógena" (España OR Portugal OR Europa OR UE)',
+            '"gripe aviar" (España OR Portugal OR Europa OR UE)',
         ],
         "match_terms": [
             "influenza aviar",
@@ -80,9 +82,9 @@ DISEASES = {
     },
     "PPA - Peste Porcina Africana": {
         "queries": [
-            '("peste porcina africana" OR PPA OR ASF) (porcino OR cerdo OR cerdos OR jabalí OR jabalies OR jabalíes) (España OR Portugal OR Europa OR UE OR "Unión Europea") when:7d',
-            '"peste porcina africana" (España OR Portugal OR Europa OR UE) when:7d',
-            'PPA porcino (España OR Portugal OR Europa OR UE) when:7d',
+            '("peste porcina africana" OR PPA OR ASF) (porcino OR cerdo OR cerdos OR jabalí OR jabalies OR jabalíes) (España OR Portugal OR Europa OR UE OR "Unión Europea")',
+            '"peste porcina africana" (España OR Portugal OR Europa OR UE)',
+            'PPA porcino (España OR Portugal OR Europa OR UE)',
         ],
         "match_terms": [
             "peste porcina africana",
@@ -135,13 +137,6 @@ def inject_brand_css():
                 font-size: 0.98rem;
                 color: #444444;
                 margin-bottom: 1rem;
-            }
-
-            .kpi-box {
-                background: rgba(255,255,255,0.02);
-                border: 1px solid rgba(128,128,128,0.20);
-                border-radius: 14px;
-                padding: 12px 14px;
             }
 
             div.stButton > button,
@@ -251,6 +246,10 @@ def build_rss_url(query):
     return GOOGLE_NEWS_RSS.format(query=urllib.parse.quote(query, safe=""))
 
 
+def build_queries(base_queries, days_back):
+    return [f"{q} when:{days_back}d" for q in base_queries]
+
+
 def fetch_url(url):
     req = urllib.request.Request(url, headers=HEADERS)
     with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as response:
@@ -285,7 +284,7 @@ def contains_disease(text, disease_terms):
     return any(term in t for term in disease_terms)
 
 
-def is_recent(dt, days_back=DAYS_BACK):
+def is_recent(dt, days_back):
     if not dt:
         return False
     cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
@@ -331,9 +330,9 @@ def fetch_query_results(query):
 
 
 @st.cache_data(ttl=240, show_spinner=False)
-def fetch_news_for_disease(disease_name, config):
+def fetch_news_for_disease(disease_name, config, days_back):
     raw_items = []
-    queries = config["queries"]
+    queries = build_queries(config["queries"], days_back)
     match_terms = config["match_terms"]
 
     with ThreadPoolExecutor(max_workers=min(6, len(queries))) as executor:
@@ -354,7 +353,7 @@ def fetch_news_for_disease(disease_name, config):
             ]
         )
 
-        if not is_recent(item.get("published")):
+        if not is_recent(item.get("published"), days_back):
             continue
 
         if not contains_disease(combined_text, match_terms):
@@ -441,13 +440,25 @@ st.set_page_config(page_title=APP_TITLE, layout="wide")
 inject_brand_css()
 render_brand_header()
 
+with st.sidebar:
+    st.header("Filtros")
+    days_back = st.number_input(
+        "Buscar noticias publicadas en los últimos días",
+        min_value=MIN_DAYS_BACK,
+        max_value=MAX_DAYS_BACK,
+        value=DEFAULT_DAYS_BACK,
+        step=1,
+    )
+    st.caption("La app se vuelve a consultar automáticamente cada 5 minutos.")
+    st.caption("También puedes forzar una actualización manual con el botón principal.")
+
 col_a, col_b, col_c = st.columns([1, 1, 2])
 with col_a:
     st.metric("Enfermedades monitorizadas", len(DISEASES))
 with col_b:
     st.metric("Noticias por enfermedad", MAX_NEWS_PER_DISEASE)
 with col_c:
-    st.metric("Ventana temporal", f"Últimos {DAYS_BACK} días")
+    st.metric("Ventana temporal", f"Últimos {days_back} días")
 
 if st.button("Actualizar ahora", use_container_width=True):
     st.cache_data.clear()
@@ -463,7 +474,7 @@ def render_monitor():
     with st.spinner("Buscando noticias..."):
         results = {}
         for disease_name, config in DISEASES.items():
-            results[disease_name] = fetch_news_for_disease(disease_name, config)
+            results[disease_name] = fetch_news_for_disease(disease_name, config, days_back)
 
     total_found = sum(len(v) for v in results.values())
     st.success(f"Noticias encontradas en esta actualización: {total_found}")
